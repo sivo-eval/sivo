@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv init:*)",
+      "Bash(uv add:*)",
+      "Bash(uv run:*)",
+      "Bash(uv build:*)",
+      "Bash(uv sync:*)",
+      "Bash(grep -l \"evalkit\" /Users/simonham/.claude/projects/-Users-simonham-Dev-evalkit/memory/*.md)"
+    ]
+  }
+}
