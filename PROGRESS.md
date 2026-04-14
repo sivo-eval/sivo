@@ -9,6 +9,8 @@ Update this file at the end of every Claude Code session. It is the primary cont
 **Phase:** Rename evalkit → sivo — Complete
 **State:** Complete. 520 tests pass, 7 skipped.
 
+GitHub Actions CI configured (`.github/workflows/ci.yml`). Triggers on push to main and PRs. Matrix: Python 3.11 + 3.12. Runs `uv run pytest -m "not integration and not packaging and not perf"` and uploads JUnit XML as artifact.
+
 ---
 
 ## Phase overview
