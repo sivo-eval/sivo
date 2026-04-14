@@ -1,0 +1,36 @@
+[project]
+name = "sivo"
+version = "0.1.0"
+description = "Developer-first Python library for evaluating LLM outputs. Think pytest for LLMs."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "rich>=13.0",
+    "anthropic>=0.25",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+
+[project.scripts]
+sivo = "sivo.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "openai>=1.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that make real LLM API calls (skip with --no-llm)",
+    "perf: marks performance/load tests — excluded from the default run (run with: pytest tests/perf/ -m perf)",
+    "packaging: marks packaging smoke tests — excluded from the default run (run with: pytest tests/e2e/test_packaging.py -m packaging)",
+]
+addopts = "--ignore=tests/perf --ignore=tests/e2e/test_packaging.py"
