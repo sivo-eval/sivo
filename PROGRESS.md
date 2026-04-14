@@ -11,6 +11,8 @@ Update this file at the end of every Claude Code session. It is the primary cont
 
 GitHub Actions CI configured (`.github/workflows/ci.yml`). Triggers on push to main and PRs. Matrix: Python 3.11 + 3.12. Runs `uv run pytest -m "not integration and not packaging and not perf"` and uploads JUnit XML as artifact.
 
+PyPI publish workflow configured (`.github/workflows/publish.yml`). Triggers on GitHub release publication. Builds with `uv build` and publishes via OIDC trusted publishing (no API token required — needs PyPI trusted publisher configured for this repo).
+
 ---
 
 ## Phase overview
