@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Secrets and local config
+.envrc
+.env
+.env.*
+.claude/settings.local.json
+
+# Sivo output store
+.sivo/
