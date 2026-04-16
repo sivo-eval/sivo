@@ -20,3 +20,8 @@ wheels/
 
 #vhs  demos
 vhs/
+
+# Internal planning and continuity files
+CLAUDE.md
+PROGRESS.md
+DECISIONS.md
