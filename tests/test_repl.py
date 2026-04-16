@@ -64,6 +64,7 @@ def _session(
     case: EvalCase | None = None,
     result: EvalResult | None = None,
     eval_func=None,
+    provider=None,
 ) -> tuple[PdbLlmSession, Console]:
     con = _console()
     inputs = iter(commands)
@@ -79,6 +80,7 @@ def _session(
         eval_func=eval_func,
         console=con,
         input_fn=lambda: next(inputs),
+        provider=provider,
     )
     return sess, con
 
@@ -299,6 +301,83 @@ def test_retry_flaky_shows_flaky():
     sess, con = _session(["retry", "skip"], eval_func=_flaky)
     sess.run()
     assert "FLAKY" in _text(con)
+
+
+def test_retry_calls_provider_with_new_system_prompt():
+    """After hot-swapping system_prompt, retry calls the provider with the new value
+    and updates case.output with the fresh response before running the eval."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sivo.providers import CompletionResult
+
+    provider = MagicMock()
+    provider.complete = AsyncMock(
+        return_value=CompletionResult(
+            output="fresh response",
+            input_tokens=10,
+            output_tokens=5,
+            cost_usd=0.0001,
+            model="claude-haiku-4-5",
+        )
+    )
+
+    captured: dict = {}
+
+    def _capture(case):
+        captured["system_prompt"] = case.system_prompt
+        captured["output"] = case.output
+
+    sess, _ = _session(
+        ['system_prompt = "Swapped prompt."', "retry", "skip"],
+        eval_func=_capture,
+        provider=provider,
+    )
+    sess.run()
+
+    # Provider was called once with the hot-swapped system_prompt
+    provider.complete.assert_called_once()
+    call_kwargs = provider.complete.call_args.kwargs
+    assert call_kwargs["system_prompt"] == "Swapped prompt."
+
+    # case.output was updated with the provider's response before the eval ran
+    assert captured.get("output") == "fresh response"
+
+
+def test_retry_without_hotswap_calls_provider_with_original_system_prompt():
+    """retry without any hot-swap still makes a fresh LLM call with the
+    original system_prompt and updates case.output."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sivo.providers import CompletionResult
+
+    provider = MagicMock()
+    provider.complete = AsyncMock(
+        return_value=CompletionResult(
+            output="brand new output",
+            input_tokens=8,
+            output_tokens=4,
+            cost_usd=0.00005,
+            model="claude-haiku-4-5",
+        )
+    )
+
+    case = _case(system_prompt="Original prompt.", output="stale output")
+    captured: dict = {}
+
+    def _capture(c):
+        captured["output"] = c.output
+        captured["system_prompt"] = c.system_prompt
+
+    sess, _ = _session(["retry", "skip"], case=case, eval_func=_capture, provider=provider)
+    sess.run()
+
+    # Provider was called with the original system_prompt
+    provider.complete.assert_called_once()
+    call_kwargs = provider.complete.call_args.kwargs
+    assert call_kwargs["system_prompt"] == "Original prompt."
+
+    # case.output was replaced with the provider's response
+    assert captured.get("output") == "brand new output"
 
 
 # ---------------------------------------------------------------------------

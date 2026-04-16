@@ -157,8 +157,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # --pdb-llm: create a REPL hook that pauses on each failure
     pdb_hook = None
     if getattr(args, "pdb_llm", False):
+        from sivo.providers.registry import get_provider
         from sivo.repl import make_pdb_hook
-        pdb_hook = make_pdb_hook(console=console)
+        exec_provider_name = getattr(args, "provider", None) or config.provider
+        try:
+            exec_provider = get_provider(exec_provider_name)
+        except (ValueError, ImportError, TypeError) as exc:
+            _err(f"Cannot load provider {exec_provider_name!r}: {exc}")
+            return 2
+        pdb_hook = make_pdb_hook(
+            console=console,
+            provider=exec_provider,
+            model=config.default_model,
+        )
 
     # Resolve judge provider from args + config
     try:

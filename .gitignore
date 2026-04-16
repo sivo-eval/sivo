@@ -17,3 +17,6 @@ wheels/
 
 # Sivo output store
 .sivo/
+
+#vhs  demos
+vhs/

@@ -13,6 +13,8 @@ GitHub Actions CI configured (`.github/workflows/ci.yml`). Triggers on push to m
 
 PyPI publish workflow configured (`.github/workflows/publish.yml`). Triggers on GitHub release publication. Builds with `uv build` and publishes via OIDC trusted publishing (no API token required — needs PyPI trusted publisher configured for this repo).
 
+VHS demo scenario created in `vhs/` for the `--pdb-llm` screencast. Files: `vhs/evals/eval_refund.py` (eval that asserts `"refund policy"` — will fail against the vague fixture), `vhs/evals/make_fixture.py` (run once to generate `vhs/.sivo/records/demo-run-001.jsonl` via a real LLM call with a deliberately vague system prompt). `vhs/sivo.toml` updated with `store_path = ".sivo"`. Demo flow: run `make_fixture.py`, then `cd vhs && sivo replay demo-run-001 evals/eval_refund.py --pdb-llm`.
+
 ---
 
 ## Phase overview
