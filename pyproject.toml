@@ -1,6 +1,6 @@
 [project]
 name = "sivo"
-version = "0.1.0"
+version = "0.1.1"
 description = "Developer-first Python library for evaluating LLM outputs. Think pytest for LLMs."
 requires-python = ">=3.11"
 dependencies = [
@@ -28,6 +28,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "integration: marks tests that make real LLM API calls (skip with --no-llm)",
     "perf: marks performance/load tests — excluded from the default run (run with: pytest tests/perf/ -m perf)",

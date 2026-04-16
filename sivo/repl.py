@@ -8,7 +8,9 @@ Commands
 --------
 inspect          Print ``input``, ``system_prompt``, ``output``, and judge
                  verdict (if the failure was a judge assertion).
-retry            Re-run the current eval with the current case state.
+retry            Make a fresh LLM call with the current prompt, update
+                 ``output``, then re-run the eval assertions against the
+                 new response.
 skip             Skip this failure and continue to the next eval (REPL
                  remains active for future failures).
 continue         Disable the REPL; resume the run without further pausing.
@@ -29,6 +31,7 @@ source files manually.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Callable
 
@@ -37,13 +40,14 @@ from rich.rule import Rule
 
 if TYPE_CHECKING:
     from sivo.models import EvalCase
+    from sivo.providers import Provider
     from sivo.runner import EvalResult
 
 _PROMPT = "(pdb-llm) "
 _SETTABLE_FIELDS = {"system_prompt"}
 _HELP_LINE = (
     " Commands: inspect  retry  skip  continue  abort"
-    '  |  Hot-swap: system_prompt = "new value"'
+    '  |  Hot-swap: system_prompt = "new value"  |  retry calls the LLM'
 )
 
 
@@ -72,12 +76,16 @@ class PdbLlmSession:
         *,
         console: Console,
         input_fn: Callable[[], str] | None = None,
+        provider: Provider | None = None,
+        model: str = "claude-haiku-4-5",
     ) -> None:
         self._case = case
         self._result = result
         self._eval_func = eval_func
         self._console = console
         self._input_fn = input_fn if input_fn is not None else input
+        self._provider = provider
+        self._model = model
 
     # ------------------------------------------------------------------
     # Public interface
@@ -170,8 +178,51 @@ class PdbLlmSession:
         con.print()
 
     def _cmd_retry(self) -> None:
-        """Re-run the eval function with the current case state."""
+        """Make a fresh LLM call then re-run the eval against the new output.
+
+        When a provider is available, calls ``provider.complete()`` with the
+        current case state (including any hot-swapped ``system_prompt``),
+        updates ``case.output`` with the response, and then runs the eval
+        assertions.  If the LLM call fails the error is reported and the REPL
+        stays open so the user can retry or abort.
+
+        When no provider is set (headless / test mode), skips the LLM call and
+        re-runs assertions against the existing ``case.output``.
+        """
         from sivo.runner import EvalEngine
+
+        if self._provider is not None:
+            # Build the messages list from the current case state
+            if self._case.conversation:
+                messages = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in self._case.conversation
+                ]
+            else:
+                content = (
+                    self._case.input
+                    if isinstance(self._case.input, str)
+                    else str(self._case.input)
+                )
+                messages = [{"role": "user", "content": content}]
+
+            try:
+                completion = asyncio.run(
+                    self._provider.complete(
+                        model=self._model,
+                        system_prompt=self._case.system_prompt,
+                        messages=messages,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                first_line = str(exc).splitlines()[0]
+                self._console.print(f"  ERROR  LLM call failed: {first_line}")
+                self._console.print(
+                    "  (use 'retry' to try again, or 'abort' to stop)"
+                )
+                return
+
+            self._case = self._case.model_copy(update={"output": completion.output})
 
         engine = EvalEngine()
         new_result = engine.run(
@@ -253,6 +304,8 @@ def make_pdb_hook(
     *,
     console: Console,
     input_fn: Callable[[], str] | None = None,
+    provider: Provider | None = None,
+    model: str = "claude-haiku-4-5",
 ) -> Callable:
     """Return a pdb-llm hook for use with :func:`~sivo.runner.run_session`.
 
@@ -263,6 +316,12 @@ def make_pdb_hook(
     Args:
         console:  Rich console for all REPL output.
         input_fn: Optional injectable input callable (used in tests).
+        provider: :class:`~sivo.providers.Provider` instance used to make
+                  fresh LLM calls on ``retry``.  When ``None``, ``retry``
+                  re-runs assertions against the existing output without
+                  calling the LLM (useful in headless / test mode).
+        model:    Model string forwarded to ``provider.complete()`` on retry.
+                  Defaults to ``"claude-haiku-4-5"``.
 
     Returns:
         A callable ``(result, case, eval_func) -> (action, result)`` where
@@ -280,6 +339,8 @@ def make_pdb_hook(
             eval_func=eval_func,
             console=console,
             input_fn=input_fn,
+            provider=provider,
+            model=model,
         )
         return session.run()
 
