@@ -1,37 +1,57 @@
 # sivo
 
-A pytest-style evaluation framework for LLM outputs.
+**A pytest-style evaluation framework for LLM outputs.**
 
 [![PyPI](https://img.shields.io/pypi/v/sivo)](https://pypi.org/project/sivo/)
 [![CI](https://img.shields.io/github/actions/workflow/status/sivo-eval/sivo/ci.yml?branch=main)](https://github.com/sivo-eval/sivo/actions)
 [![Python](https://img.shields.io/pypi/pyversions/sivo)](https://pypi.org/project/sivo/)
 [![License](https://img.shields.io/github/license/sivo-eval/sivo)](LICENSE)
 
-`pip install sivo`, write `eval_*.py` files, run `sivo run`. No dashboards, no SaaS, no vendor lock-in. LLM evaluation as a development workflow, not an observability product.
+Write eval functions that assert on LLM outputs the way pytest asserts on function outputs. Every LLM call is stored as a JSONL record, so you can re-run new assertions against old outputs at zero API cost — and drop into an interactive REPL to fix failing prompts on the fly.
 
-The core idea: LLM execution and assertion evaluation are separate layers. Every call writes an `ExecutionRecord` to JSONL. Eval functions run assertions against stored records — at zero API cost — as many times as you like.
+```python
+from sivo.assertions import assert_contains, assert_judge
+
+def eval_refund_policy(case):
+    assert_contains(case.output, "30 days")
+    assert_judge(case.output, rubric="tone")
+```
+
+```bash
+pip install sivo
+sivo run evals/
+```
 
 ---
 
-## Demo
+## Replay evals at zero API cost
 
-![Replay evals against stored outputs at zero API cost](assets/demo_replay.gif)
+![Replay demo](assets/demo_replay.gif)
 
-*Replay evals against stored outputs at zero API cost*
+Every LLM call writes an `ExecutionRecord` to JSONL. Write a new assertion today, run it against last month's outputs without touching the API. Change a rubric; verify it across your full history.
 
-![Interactive debug: inspect failures, hot-swap prompts, retry](assets/demo_pdb_llm.gif)
+```bash
+sivo replay run_20260101 evals/
+```
 
-*Interactive debug: inspect failures, hot-swap prompts, retry live*
+## Debug failures interactively
+
+![Interactive debug demo](assets/demo_pdb_llm.gif)
+
+`--pdb-llm` pauses on every failure. Inspect the input, system prompt, and output. Hot-swap the prompt, hit `retry`, and sivo makes a fresh LLM call with your change. Find the fix in seconds instead of edit-run-wait loops.
+
+```bash
+sivo run evals/ --run-id my_run --pdb-llm
+```
 
 ---
 
-## Why sivo
+## What else
 
-- **Assertion-based, not dashboard-based.** Evals are code — version-controlled, composable, runnable in CI like tests.
-- **Zero-cost replay.** Run new evals against last month's stored outputs without touching the API. Change a rubric; verify it against your full history.
-- **Multi-provider.** Anthropic and OpenAI built in. Execution provider and judge provider are independently configurable.
-- **CI-native.** JUnit XML output, deterministic exit codes, and `--no-fail-fast` for complete reporting.
-- **Interactive debugger.** `--pdb-llm` pauses on failures, lets you inspect context and hot-swap `system_prompt`, and retries with a fresh LLM call.
+- **Multi-provider.** Anthropic and OpenAI built in. Execution and judge providers configured independently.
+- **Structured LLM-as-judge.** Built-in rubrics (helpfulness, tone, toxicity, factual consistency, conciseness) or write your own in plain English. Verdicts come back as typed `JudgeVerdict` objects, cached by content hash.
+- **CI-ready.** JUnit XML output, deterministic exit codes (`0` pass, `1` fail, `2` error), `--no-fail-fast` for complete reports.
+- **Fixtures and data-driven evals.** pytest-style `@sivo.fixture(scope=...)` with session and eval scopes, plus `eval_*_cases()` generators for parametric evaluation.
 
 ---
 
