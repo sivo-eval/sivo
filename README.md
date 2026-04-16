@@ -1,380 +1,305 @@
 # sivo
 
-**Developer-first LLM evaluation. Think pytest for LLMs.**
+A pytest-style evaluation framework for LLM outputs.
 
-`pip install sivo`, write `eval_*.py` files, run `sivo run`. No dashboards, no SaaS, no vendor lock-in.
+[![PyPI](https://img.shields.io/pypi/v/sivo)](https://pypi.org/project/sivo/)
+[![CI](https://img.shields.io/github/actions/workflow/status/sivo-eval/sivo/ci.yml?branch=main)](https://github.com/sivo-eval/sivo/actions)
+[![Python](https://img.shields.io/pypi/pyversions/sivo)](https://pypi.org/project/sivo/)
+[![License](https://img.shields.io/github/license/sivo-eval/sivo)](LICENSE)
 
----
+`pip install sivo`, write `eval_*.py` files, run `sivo run`. No dashboards, no SaaS, no vendor lock-in. LLM evaluation as a development workflow, not an observability product.
 
-## Why sivo?
-
-LLM outputs are non-deterministic. Prompts break silently. Sivo treats LLM evaluation exactly like unit tests — catch regressions in CI before they reach production.
-
-The key design: **separate execution from evaluation**. Every LLM call produces a stored `ExecutionRecord`. Eval functions run assertions against stored records — at zero API cost — forever.
-
-```
-LLM call → ExecutionRecord (JSONL) → eval functions → pass/fail
-                                      ↑
-                              replay any time, free
-```
+The core idea: LLM execution and assertion evaluation are separate layers. Every call writes an `ExecutionRecord` to JSONL. Eval functions run assertions against stored records — at zero API cost — as many times as you like.
 
 ---
 
-## Install
+## Demo
+
+![Replay evals against stored outputs at zero API cost](assets/demo_replay.gif)
+
+*Replay evals against stored outputs at zero API cost*
+
+![Interactive debug: inspect failures, hot-swap prompts, retry](assets/demo_pdb_llm.gif)
+
+*Interactive debug: inspect failures, hot-swap prompts, retry live*
+
+---
+
+## Why sivo
+
+- **Assertion-based, not dashboard-based.** Evals are code — version-controlled, composable, runnable in CI like tests.
+- **Zero-cost replay.** Run new evals against last month's stored outputs without touching the API. Change a rubric; verify it against your full history.
+- **Multi-provider.** Anthropic and OpenAI built in. Execution provider and judge provider are independently configurable.
+- **CI-native.** JUnit XML output, deterministic exit codes, and `--no-fail-fast` for complete reporting.
+- **Interactive debugger.** `--pdb-llm` pauses on failures, lets you inspect context and hot-swap `system_prompt`, and retries with a fresh LLM call.
+
+---
+
+## Quick start
+
+### Install
 
 ```bash
 pip install sivo           # Anthropic (default)
 pip install sivo[openai]   # + OpenAI support
 ```
 
-Requires Python 3.11+. Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` for OpenAI) to use the execution engine and LLM judge.
+Requires Python 3.11+. Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`).
 
----
-
-## Quickstart
-
-**1. Write an eval file:**
+### Write your first eval
 
 ```python
-# eval_refund_policy.py
+# eval_support.py
 from sivo.assertions import assert_contains, assert_judge
 
-def eval_mentions_30_days(case):
+def eval_mentions_refund_window(case):
+    """Response must state the 30-day return window."""
     assert_contains(case.output, "30 days")
 
 def eval_tone(case):
+    """Response must be professional in tone."""
     assert_judge(case.output, rubric="tone")
 ```
 
-**2. Run evals against stored records:**
+### Run it
 
 ```bash
-sivo replay <run_id> eval_refund_policy.py
+# Replay against stored records (zero API cost)
+sivo replay run_20260101 eval_support.py
+
+# Or run data-driven evals (supply your own EvalCase objects)
+sivo run eval_support.py
 ```
 
-**3. Or use data-driven evals (no stored records needed):**
-
-```python
-# eval_suite.py
-from sivo.models import EvalCase
-from sivo.assertions import assert_contains
-
-def eval_refund_cases():
-    return [
-        EvalCase(input="Refund policy?", output="Returns accepted within 30 days."),
-        EvalCase(input="Return after 60 days?", output="Contact support for exceptions."),
-    ]
-
-def eval_refund(case):
-    assert_contains(case.output, "support")
 ```
+  PASS  eval_mentions_refund_window  (record r-001)
+  FAIL  eval_tone  (record r-002)
+        reason: Response uses casual language ("hey") instead of professional tone.
 
-```bash
-sivo run eval_suite.py   # no --run-id needed for data-driven evals
+─────────────────────────────────────────
+ sivo run complete
+ 1 passed  1 failed
+ run id: run_20260101
+─────────────────────────────────────────
 ```
 
 ---
 
-## How it works
+## A realistic example
+
+[`examples/eval_refund_policy.py`](examples/eval_refund_policy.py) shows a complete customer support bot evaluation:
+three deterministic assertions against a stored JSONL fixture, with instructions for generating the fixture via
+`examples/make_fixture.py`.
+
+[`examples/eval_tone.py`](examples/eval_tone.py) shows data-driven evals, `assert_judge` with both a built-in rubric
+and a custom rubric, and a session-scoped fixture.
+
+---
+
+## Core concepts
+
+### Eval functions and the assertion model
+
+An eval function is any `def eval_*(case: EvalCase)` in a file named `eval_*.py`. The function raises on failure;
+returning normally is a pass. All assertions in a function must pass for the eval to pass.
+
+```python
+def eval_refund_policy(case):
+    assert_contains(case.output, "30 days")
+    assert_not_contains(case.output, "restocking fee")
+    assert_judge(case.output, rubric="helpfulness")
+```
+
+Deterministic assertions (`assert_contains`, `assert_regex`, `assert_length`, `assert_matches_schema`) run free.
+`assert_judge` makes an LLM call to the judge model and returns a structured `JudgeVerdict`.
 
 ### Two-layer architecture
 
 ```
-Layer 1: Execution Engine   →  calls LLM  →  writes ExecutionRecord to JSONL
-Layer 2: Eval Engine        →  reads JSONL →  runs assertions  →  pass/fail
+Execution Engine  →  provider.complete()  →  ExecutionRecord (JSONL)
+Eval Engine       →  reads JSONL          →  assertions       →  pass/fail
 ```
 
-Eval functions **never call the LLM**. The runner injects pre-populated `EvalCase` objects. This is what makes replay work.
+Eval functions never call the LLM. The runner injects a pre-populated `EvalCase`; `case.output` holds the stored
+response. This is what makes replay work: the eval engine is bypassed by the execution layer at run time, and
+re-run against stored records at zero cost afterward.
 
-### Eval function contract
+### Replay
 
-```python
-def eval_<name>(case: EvalCase) -> None:
-    response = case.output   # already populated by the runner
-    assert_contains(response, "expected text")
+```bash
+sivo replay <run_id> [path]          # re-run assertions against stored records
+sivo replay <run_id> --eval eval_tone  # one eval only
+sivo replay <run_id> --filter model=claude-haiku-4-5
 ```
 
-- Named `eval_*` in files named `eval_*.py` — auto-discovered
-- Return value ignored; raise to fail
-- Runner controls execution; eval function defines assertions only
+Records live in `.sivo/records/<run_id>.jsonl`. Write a new eval today and replay it against runs from last month.
 
----
-
-## Assertion library
-
-### Deterministic (free, no API call)
+### LLM judge
 
 ```python
-from sivo.assertions import (
-    assert_contains,       # substring match
-    assert_not_contains,   # negative match
-    assert_regex,          # regex pattern
-    assert_length,         # min/max character count
-    assert_matches_schema, # Pydantic model or TypeAdapter-compatible type
-)
-
-assert_contains(response, "30 days")
-assert_not_contains(response, "restocking fee")
-assert_regex(response, r"\d+ days?")
-assert_length(response, min=10, max=500)
-assert_matches_schema(response, MyResponseModel)
-```
-
-### LLM judge (makes API call)
-
-```python
-from sivo.judge import assert_judge
-
 # Built-in rubrics: helpfulness, tone, toxicity, factual_consistency, conciseness
 assert_judge(response, rubric="tone")
 
-# Custom rubric
+# Custom rubric — plain English
 assert_judge(
     response,
-    rubric="The response must acknowledge frustration before offering a solution.",
-    model="claude-haiku-4-5",  # default
+    rubric="The response must acknowledge the customer's frustration before offering a solution.",
 )
 ```
 
-Judge calls are cached by content hash — identical (rubric, output) pairs never hit the API twice.
+Judge calls return a structured `JudgeVerdict(passed, reason, evidence, suggestion)`. Results are cached by
+content hash — identical (rubric, output) pairs never hit the API twice within a session.
 
----
-
-## Fixtures
-
-Share expensive setup across evals using `@sivo.fixture`:
+### Fixtures and data-driven evals
 
 ```python
 import sivo
+from sivo.models import EvalCase
 
-@sivo.fixture(scope="session")   # initialised once per run
+@sivo.fixture(scope="session")   # "eval" scope also available
 def db_client():
     client = MyDBClient(url=os.environ["DB_URL"])
     yield client
-    client.close()   # teardown runs after the session
+    client.close()
 
-def eval_db_roundtrip(case, db_client):
-    result = db_client.query(case.input)
-    assert_contains(result, case.expected)
-```
-
-Scope options:
-- `"session"` — initialised once, shared across all evals
-- `"eval"` — initialised once per eval function, reset between them
-
----
-
-## Data-driven evals
-
-Pair an `eval_*_cases()` function with an `eval_*()` function to run one eval per case:
-
-```python
-from sivo.models import EvalCase
-
+# Data-driven: pair eval_*_cases() with eval_*()
 def eval_sentiment_cases():
     return [
-        EvalCase(input="Great product!", output="positive"),
-        EvalCase(input="Terrible service.", output="negative"),
+        EvalCase(input="Great product!", output="positive sentiment detected"),
+        EvalCase(input="Terrible service.", output="negative sentiment detected"),
     ]
 
-def eval_sentiment(case):
+def eval_sentiment(case, db_client):
     assert_contains(case.output, case.expected)
 ```
 
-No `--run-id` or store required. Case IDs are auto-assigned as `case-0`, `case-1`, …
+No `--run-id` required for data-driven evals. Fixture scoping mirrors pytest: `"session"` initialises once per run,
+`"eval"` once per eval function.
+
+### Interactive REPL — `--pdb-llm`
+
+```bash
+sivo run evals/ --run-id run_20260101 --pdb-llm
+```
+
+Pauses on every failure. Inside the REPL:
+
+```
+(pdb-llm) inspect                       # show input, system_prompt, output, judge_verdict
+(pdb-llm) system_prompt = "Be concise." # hot-swap the system prompt
+(pdb-llm) retry                         # fresh LLM call with new prompt; re-run assertions
+(pdb-llm) skip | continue | abort
+```
+
+`retry` makes a real provider call with the current (possibly hot-swapped) state and updates `case.output` before
+re-running assertions. Hot-swapped values are not saved automatically — copy changes back to your source files.
+
+---
+
+## Multi-provider support
+
+Anthropic (default) and OpenAI are built in. Execution provider and judge provider are independent.
+
+```bash
+sivo run evals/ --run-id my_run --provider openai --judge-provider anthropic
+sivo run evals/ --run-id my_run --judge-provider openai --judge-model gpt-4o-mini
+```
+
+```toml
+# sivo.toml
+[sivo]
+provider = "anthropic"
+
+[sivo.judge]
+provider = "openai"
+default_model = "gpt-4o-mini"
+```
+
+| Provider | Install | Env var |
+|---|---|---|
+| `anthropic` (default) | included | `ANTHROPIC_API_KEY` |
+| `openai` | `pip install sivo[openai]` | `OPENAI_API_KEY` |
+
+Custom providers implement the `Provider` protocol (`sivo.providers.Provider`) and are loaded by import path:
+`--judge-provider "my_pkg.module:MyProvider"`. See [docs/MULTI_LLM_SPEC.md](docs/MULTI_LLM_SPEC.md).
 
 ---
 
 ## CLI reference
 
-### `sivo run`
+| Command | Description |
+|---|---|
+| `sivo run [path]` | Discover and run eval functions |
+| `sivo replay RUN_ID [path]` | Replay stored records through evals (no LLM calls) |
 
-Discover and run eval functions. For data-driven evals: no `--run-id` needed.
-For record-based evals: requires `--run-id`.
+| Flag | Applies to | Description |
+|---|---|---|
+| `--run-id RUN_ID` | `run` | Load records from this run ID |
+| `--eval NAME` | both | Run only this eval function |
+| `--filter KEY=VALUE` | `replay` | Filter records by metadata (repeatable) |
+| `--no-fail-fast` | both | Run all evals; don't stop on first failure |
+| `--store-path PATH` | both | Data store root (default: `.sivo`) |
+| `-v` / `-vv` | both | Failure evidence / full judge JSON |
+| `--pdb-llm` | `run` | Interactive REPL on every failure |
+| `--junit-xml PATH` | both | Write JUnit XML report |
+| `--strict-flaky` | both | Treat `FLAKY` as `FAIL` (exit 1) |
+| `--provider PROVIDER` | both | Execution provider (`anthropic`, `openai`, or import path) |
+| `--judge-provider PROVIDER` | both | Judge provider (defaults to `--provider`) |
+| `--judge-model MODEL` | both | Judge model (default: `claude-haiku-4-5`) |
 
-```bash
-sivo run [path] [--run-id RUN_ID] [--eval NAME] [--no-fail-fast]
-            [--store-path PATH] [-v|-vv] [--pdb-llm]
-            [--junit-xml PATH] [--strict-flaky]
-```
-
-### `sivo replay`
-
-Replay stored records through eval functions — zero API cost.
-
-```bash
-sivo replay RUN_ID [path] [--eval NAME] [--filter KEY=VALUE]
-               [--no-fail-fast] [--store-path PATH] [-v|-vv]
-               [--junit-xml PATH] [--strict-flaky]
-```
-
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `--run-id RUN_ID` | Load records from this run (required for non-data-driven evals) |
-| `--eval NAME` | Run only the named eval function |
-| `--filter KEY=VALUE` | Filter records by metadata field (repeatable) |
-| `--no-fail-fast` | Continue after failures (default: stop on first) |
-| `--store-path PATH` | Data store root (default: `.sivo`) |
-| `-v` / `-vv` | Verbosity: failure evidence / full judge JSON |
-| `--pdb-llm` | Interactive REPL on every failure |
-| `--junit-xml PATH` | Write JUnit XML (CI integration) |
-| `--strict-flaky` | Treat FLAKY as FAIL (exit code 1) |
-| `--provider PROVIDER` | LLM provider for execution (`anthropic`, `openai`, or import path) |
-| `--judge-provider PROVIDER` | LLM provider for the judge (defaults to `--provider`) |
-| `--judge-model MODEL` | Model for the judge (default: `claude-haiku-4-5`) |
+Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
 
 ---
 
 ## CI integration
 
 ```yaml
-# .github/workflows/eval.yml
+# .github/workflows/evals.yml
 - name: Run evals
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   run: |
     sivo replay ${{ env.RUN_ID }} evals/ \
       --no-fail-fast \
       --junit-xml eval-results.xml
 
 - uses: mikepenz/action-junit-report@v4
+  if: always()
   with:
     report_paths: eval-results.xml
 ```
 
-Exit codes: `0` = all pass, `1` = any fail, `2` = error.
-
-JSON summary is written automatically to `.sivo/results/<run_id>.json`.
+A JSON summary is written automatically to `.sivo/results/<run_id>.json` on every run.
 
 ---
 
-## Configuration — `sivo.toml`
-
-Optional project-level config file:
+## Configuration
 
 ```toml
+# sivo.toml  (searched upward from cwd — file is optional)
+
 [sivo]
-default_model = "claude-haiku-4-5"
-concurrency = 10
-timeout = 30
-store_path = ".sivo"
+default_model = "claude-haiku-4-5"  # model used by the execution engine
+concurrency   = 10                  # max parallel LLM calls
+timeout       = 30                  # per-call timeout in seconds
+store_path    = ".sivo"             # root for JSONL records and results
+provider      = "anthropic"         # execution provider
 
 [sivo.judge]
-default_model = "claude-haiku-4-5"
-retry_attempts = 1      # set to 3 to enable majority-vote flakiness handling
+default_model   = "claude-haiku-4-5"
+provider        = ""                # defaults to [sivo] provider when empty
+retry_attempts  = 1                 # set to 3 for majority-vote flakiness handling
 
 [sivo.cost]
-warn_above_usd = 1.00   # print a warning if session cost exceeds this
-```
-
-sivo searches the current directory and all ancestor directories for `sivo.toml`.
-
----
-
-## Multi-provider support
-
-sivo ships with Anthropic (default) and OpenAI providers. The execution engine and LLM judge can use any provider independently.
-
-### Switching providers
-
-**CLI flags:**
-
-```bash
-# Use OpenAI as the judge provider
-sivo run evals/ --run-id my_run --judge-provider openai --judge-model gpt-4o-mini
-
-# Override both the execution provider and the judge provider
-sivo run evals/ --run-id my_run --provider openai --judge-provider anthropic
-```
-
-**sivo.toml:**
-
-```toml
-[sivo]
-provider = "anthropic"         # execution provider (default: "anthropic")
-
-[sivo.judge]
-provider = "openai"            # judge can use a different provider
-default_model = "gpt-4o-mini"  # override the judge model
-```
-
-### Built-in providers
-
-| Provider | Install | API key env var |
-|----------|---------|-----------------|
-| `anthropic` (default) | included | `ANTHROPIC_API_KEY` |
-| `openai` | `pip install sivo[openai]` | `OPENAI_API_KEY` |
-
-### Custom providers
-
-Implement the `Provider` protocol and reference it by import path:
-
-```python
-# my_project/my_provider.py
-from sivo.providers import CompletionResult
-from sivo.models import JudgeVerdict
-
-class MyProvider:
-    name = "my_provider"
-
-    async def complete(self, *, model, system_prompt, messages,
-                       max_tokens=1024, timeout=30.0, extra_params=None):
-        ...
-        return CompletionResult(output=..., input_tokens=...,
-                                output_tokens=..., cost_usd=..., model=model)
-
-    def judge(self, *, model, system_prompt, messages, rubric_name):
-        ...
-        return JudgeVerdict(passed=..., reason=..., evidence=...)
-```
-
-```toml
-# sivo.toml
-[sivo.judge]
-provider = "my_project.my_provider:MyProvider"
-```
-
-Or via CLI:
-
-```bash
-sivo run evals/ --run-id my_run \
-  --judge-provider "my_project.my_provider:MyProvider"
+warn_above_usd = 1.00               # warn if session cost exceeds this
 ```
 
 ---
 
-## Interactive REPL — `--pdb-llm`
+## Contributing
 
-Pause on every failing eval to inspect context and hot-swap the system prompt:
-
-```
-sivo run evals/ --run-id run_20260101 --pdb-llm
-```
-
-REPL commands:
-- `inspect` — show `input`, `system_prompt`, `output`, `judge_verdict`
-- `retry` — re-run the current eval after hot-swapping
-- `system_prompt = "new prompt"` — hot-swap the system prompt
-- `skip` — mark as skipped and continue
-- `continue` — disable the REPL and finish the run
-- `abort` — stop immediately
-
----
-
-## Project layout
-
-```
-my_project/
-├── sivo.toml           # optional config
-├── evals/
-│   ├── eval_tone.py       # eval functions
-│   └── eval_accuracy.py
-└── .sivo/
-    ├── records/
-    │   └── run_20260101.jsonl   # stored ExecutionRecords
-    └── results/
-        └── run_20260101.json    # JSON summary (auto-written)
-```
+Open an issue or PR at [github.com/sivo-eval/sivo](https://github.com/sivo-eval/sivo).
+Bug reports should include a minimal reproducible eval file and the `run_id` (or a canned JSONL fixture).
 
 ---
 
