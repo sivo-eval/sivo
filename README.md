@@ -46,62 +46,6 @@ sivo run evals/ --run-id my_run --pdb-llm
 
 ---
 
-## What else
-
-- **Multi-provider.** Anthropic and OpenAI built in. Execution and judge providers configured independently.
-- **Structured LLM-as-judge.** Built-in rubrics (helpfulness, tone, toxicity, factual consistency, conciseness) or write your own in plain English. Verdicts come back as typed `JudgeVerdict` objects, cached by content hash.
-- **CI-ready.** JUnit XML output, deterministic exit codes (`0` pass, `1` fail, `2` error), `--no-fail-fast` for complete reports.
-- **Fixtures and data-driven evals.** pytest-style `@sivo.fixture(scope=...)` with session and eval scopes, plus `eval_*_cases()` generators for parametric evaluation.
-
----
-
-## CLI reference
-
-| Command | Description |
-|---|---|
-| `sivo run [path]` | Discover and run eval functions |
-| `sivo replay RUN_ID [path]` | Replay stored records through evals (no LLM calls) |
-
-| Flag | Applies to | Description |
-|---|---|---|
-| `--run-id RUN_ID` | `run` | Load records from this run ID |
-| `--eval NAME` | both | Run only this eval function |
-| `--filter KEY=VALUE` | `replay` | Filter records by metadata (repeatable) |
-| `--no-fail-fast` | both | Run all evals; don't stop on first failure |
-| `--store-path PATH` | both | Data store root (default: `.sivo`) |
-| `-v` / `-vv` | both | Failure evidence / full judge JSON |
-| `--pdb-llm` | `run` | Interactive REPL on every failure |
-| `--junit-xml PATH` | both | Write JUnit XML report |
-| `--strict-flaky` | both | Treat `FLAKY` as `FAIL` (exit 1) |
-| `--provider PROVIDER` | both | Execution provider (`anthropic`, `openai`, or import path) |
-| `--judge-provider PROVIDER` | both | Judge provider (defaults to `--provider`) |
-| `--judge-model MODEL` | both | Judge model (default: `claude-haiku-4-5`) |
-
-Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
-
-## Configuration
-
-```toml
-# sivo.toml (searched upward from cwd — file is optional)
-
-[sivo]
-default_model = "claude-haiku-4-5"
-concurrency   = 10
-timeout       = 30
-store_path    = ".sivo"
-provider      = "anthropic"
-
-[sivo.judge]
-default_model   = "claude-haiku-4-5"
-provider        = ""
-retry_attempts  = 1
-
-[sivo.cost]
-warn_above_usd = 1.00
-```
-
----
-
 ## Quick start
 
 ### Install
@@ -153,6 +97,15 @@ sivo run eval_support.py
 ---
 
 See [`examples/`](examples/) for complete working evals including customer support bots and tone evaluation.
+
+---
+
+## What else
+
+- **Multi-provider.** Anthropic and OpenAI built in. Execution and judge providers configured independently.
+- **Structured LLM-as-judge.** Built-in rubrics (helpfulness, tone, toxicity, factual consistency, conciseness) or write your own in plain English. Verdicts come back as typed `JudgeVerdict` objects, cached by content hash.
+- **CI-ready.** JUnit XML output, deterministic exit codes (`0` pass, `1` fail, `2` error), `--no-fail-fast` for complete reports.
+- **Fixtures and data-driven evals.** pytest-style `@sivo.fixture(scope=...)` with session and eval scopes, plus `eval_*_cases()` generators for parametric evaluation.
 
 ---
 
@@ -252,6 +205,53 @@ default_model = "gpt-4o-mini"
 
 Custom providers implement the `Provider` protocol (`sivo.providers.Provider`) and are loaded by import path:
 `--judge-provider "my_pkg.module:MyProvider"`. See [docs/MULTI_LLM_SPEC.md](docs/MULTI_LLM_SPEC.md).
+
+---
+
+## CLI reference
+
+| Command | Description |
+|---|---|
+| `sivo run [path]` | Discover and run eval functions |
+| `sivo replay RUN_ID [path]` | Replay stored records through evals (no LLM calls) |
+
+| Flag | Applies to | Description |
+|---|---|---|
+| `--run-id RUN_ID` | `run` | Load records from this run ID |
+| `--eval NAME` | both | Run only this eval function |
+| `--filter KEY=VALUE` | `replay` | Filter records by metadata (repeatable) |
+| `--no-fail-fast` | both | Run all evals; don't stop on first failure |
+| `--store-path PATH` | both | Data store root (default: `.sivo`) |
+| `-v` / `-vv` | both | Failure evidence / full judge JSON |
+| `--pdb-llm` | `run` | Interactive REPL on every failure |
+| `--junit-xml PATH` | both | Write JUnit XML report |
+| `--strict-flaky` | both | Treat `FLAKY` as `FAIL` (exit 1) |
+| `--provider PROVIDER` | both | Execution provider (`anthropic`, `openai`, or import path) |
+| `--judge-provider PROVIDER` | both | Judge provider (defaults to `--provider`) |
+| `--judge-model MODEL` | both | Judge model (default: `claude-haiku-4-5`) |
+
+Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
+
+## Configuration
+
+```toml
+# sivo.toml (searched upward from cwd — file is optional)
+
+[sivo]
+default_model = "claude-haiku-4-5"
+concurrency   = 10
+timeout       = 30
+store_path    = ".sivo"
+provider      = "anthropic"
+
+[sivo.judge]
+default_model   = "claude-haiku-4-5"
+provider        = ""
+retry_attempts  = 1
+
+[sivo.cost]
+warn_above_usd = 1.00
+```
 
 ---
 
