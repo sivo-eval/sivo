@@ -1,8 +1,13 @@
 [project]
 name = "sivo"
-version = "0.1.1"
+version = "0.1.2"
 description = "Developer-first Python library for evaluating LLM outputs. Think pytest for LLMs."
 requires-python = ">=3.11"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "pydantic>=2.0",
     "rich>=13.0",
@@ -21,11 +26,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "openai>=1.0",
-]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "openai>=1.0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

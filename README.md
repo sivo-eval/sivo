@@ -55,6 +55,53 @@ sivo run evals/ --run-id my_run --pdb-llm
 
 ---
 
+## CLI reference
+
+| Command | Description |
+|---|---|
+| `sivo run [path]` | Discover and run eval functions |
+| `sivo replay RUN_ID [path]` | Replay stored records through evals (no LLM calls) |
+
+| Flag | Applies to | Description |
+|---|---|---|
+| `--run-id RUN_ID` | `run` | Load records from this run ID |
+| `--eval NAME` | both | Run only this eval function |
+| `--filter KEY=VALUE` | `replay` | Filter records by metadata (repeatable) |
+| `--no-fail-fast` | both | Run all evals; don't stop on first failure |
+| `--store-path PATH` | both | Data store root (default: `.sivo`) |
+| `-v` / `-vv` | both | Failure evidence / full judge JSON |
+| `--pdb-llm` | `run` | Interactive REPL on every failure |
+| `--junit-xml PATH` | both | Write JUnit XML report |
+| `--strict-flaky` | both | Treat `FLAKY` as `FAIL` (exit 1) |
+| `--provider PROVIDER` | both | Execution provider (`anthropic`, `openai`, or import path) |
+| `--judge-provider PROVIDER` | both | Judge provider (defaults to `--provider`) |
+| `--judge-model MODEL` | both | Judge model (default: `claude-haiku-4-5`) |
+
+Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
+
+## Configuration
+
+```toml
+# sivo.toml (searched upward from cwd — file is optional)
+
+[sivo]
+default_model = "claude-haiku-4-5"
+concurrency   = 10
+timeout       = 30
+store_path    = ".sivo"
+provider      = "anthropic"
+
+[sivo.judge]
+default_model   = "claude-haiku-4-5"
+provider        = ""
+retry_attempts  = 1
+
+[sivo.cost]
+warn_above_usd = 1.00
+```
+
+---
+
 ## Quick start
 
 ### Install
@@ -105,14 +152,7 @@ sivo run eval_support.py
 
 ---
 
-## A realistic example
-
-[`examples/eval_refund_policy.py`](examples/eval_refund_policy.py) shows a complete customer support bot evaluation:
-three deterministic assertions against a stored JSONL fixture, with instructions for generating the fixture via
-`examples/make_fixture.py`.
-
-[`examples/eval_tone.py`](examples/eval_tone.py) shows data-driven evals, `assert_judge` with both a built-in rubric
-and a custom rubric, and a session-scoped fixture.
+See [`examples/`](examples/) for complete working evals including customer support bots and tone evaluation.
 
 ---
 
@@ -143,16 +183,6 @@ Eval Engine       →  reads JSONL          →  assertions       →  pass/fail
 Eval functions never call the LLM. The runner injects a pre-populated `EvalCase`; `case.output` holds the stored
 response. This is what makes replay work: the eval engine is bypassed by the execution layer at run time, and
 re-run against stored records at zero cost afterward.
-
-### Replay
-
-```bash
-sivo replay <run_id> [path]          # re-run assertions against stored records
-sivo replay <run_id> --eval eval_tone  # one eval only
-sivo replay <run_id> --filter model=claude-haiku-4-5
-```
-
-Records live in `.sivo/records/<run_id>.jsonl`. Write a new eval today and replay it against runs from last month.
 
 ### LLM judge
 
@@ -196,26 +226,6 @@ def eval_sentiment(case, db_client):
 No `--run-id` required for data-driven evals. Fixture scoping mirrors pytest: `"session"` initialises once per run,
 `"eval"` once per eval function.
 
-### Interactive REPL — `--pdb-llm`
-
-```bash
-sivo run evals/ --run-id run_20260101 --pdb-llm
-```
-
-Pauses on every failure. Inside the REPL:
-
-```
-(pdb-llm) inspect                       # show input, system_prompt, output, judge_verdict
-(pdb-llm) system_prompt = "Be concise." # hot-swap the system prompt
-(pdb-llm) retry                         # fresh LLM call with new prompt; re-run assertions
-(pdb-llm) skip | continue | abort
-```
-
-`retry` makes a real provider call with the current (possibly hot-swapped) state and updates `case.output` before
-re-running assertions. Hot-swapped values are not saved automatically — copy changes back to your source files.
-
----
-
 ## Multi-provider support
 
 Anthropic (default) and OpenAI are built in. Execution provider and judge provider are independent.
@@ -245,32 +255,6 @@ Custom providers implement the `Provider` protocol (`sivo.providers.Provider`) a
 
 ---
 
-## CLI reference
-
-| Command | Description |
-|---|---|
-| `sivo run [path]` | Discover and run eval functions |
-| `sivo replay RUN_ID [path]` | Replay stored records through evals (no LLM calls) |
-
-| Flag | Applies to | Description |
-|---|---|---|
-| `--run-id RUN_ID` | `run` | Load records from this run ID |
-| `--eval NAME` | both | Run only this eval function |
-| `--filter KEY=VALUE` | `replay` | Filter records by metadata (repeatable) |
-| `--no-fail-fast` | both | Run all evals; don't stop on first failure |
-| `--store-path PATH` | both | Data store root (default: `.sivo`) |
-| `-v` / `-vv` | both | Failure evidence / full judge JSON |
-| `--pdb-llm` | `run` | Interactive REPL on every failure |
-| `--junit-xml PATH` | both | Write JUnit XML report |
-| `--strict-flaky` | both | Treat `FLAKY` as `FAIL` (exit 1) |
-| `--provider PROVIDER` | both | Execution provider (`anthropic`, `openai`, or import path) |
-| `--judge-provider PROVIDER` | both | Judge provider (defaults to `--provider`) |
-| `--judge-model MODEL` | both | Judge model (default: `claude-haiku-4-5`) |
-
-Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
-
----
-
 ## CI integration
 
 ```yaml
@@ -290,29 +274,6 @@ Exit codes: `0` = all pass, `1` = any fail, `2` = internal error.
 ```
 
 A JSON summary is written automatically to `.sivo/results/<run_id>.json` on every run.
-
----
-
-## Configuration
-
-```toml
-# sivo.toml  (searched upward from cwd — file is optional)
-
-[sivo]
-default_model = "claude-haiku-4-5"  # model used by the execution engine
-concurrency   = 10                  # max parallel LLM calls
-timeout       = 30                  # per-call timeout in seconds
-store_path    = ".sivo"             # root for JSONL records and results
-provider      = "anthropic"         # execution provider
-
-[sivo.judge]
-default_model   = "claude-haiku-4-5"
-provider        = ""                # defaults to [sivo] provider when empty
-retry_attempts  = 1                 # set to 3 for majority-vote flakiness handling
-
-[sivo.cost]
-warn_above_usd = 1.00               # warn if session cost exceeds this
-```
 
 ---
 
