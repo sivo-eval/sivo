@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/sivo)](https://pypi.org/project/sivo/)
 [![CI](https://img.shields.io/github/actions/workflow/status/sivo-eval/sivo/ci.yml?branch=main)](https://github.com/sivo-eval/sivo/actions)
 [![Python](https://img.shields.io/pypi/pyversions/sivo)](https://pypi.org/project/sivo/)
-[![License](https://img.shields.io/github/license/sivo-eval/sivo)](LICENSE)
+[![License](https://img.shields.io/pypi/l/sivo)](LICENSE)
 
 Write eval functions that assert on LLM outputs the way pytest asserts on function outputs. Every LLM call is stored as a JSONL record, so you can re-run new assertions against old outputs at zero API cost — and drop into an interactive REPL to fix failing prompts on the fly.
 
